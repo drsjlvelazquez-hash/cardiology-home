@@ -34,26 +34,30 @@ only do this for a private desktop copy, never for a file you share).
 
 The patient monitor's "Analyze" button calls Claude (`claude-sonnet-5`):
 
-- **Deployed on Cloudflare:** the request goes through `functions/api/analyze.js`
-  (a Pages Function), so the API key stays server-side and is never exposed to
-  visitors. Set `ANTHROPIC_API_KEY` in the Cloudflare dashboard.
+- **Deployed on Cloudflare:** the request goes through the Worker
+  (`worker/index.js` handles `POST /api/analyze`), so the API key stays
+  server-side and is never exposed to visitors. Set `ANTHROPIC_API_KEY` in the
+  Cloudflare dashboard.
 - **Local dev / desktop file:** falls back to calling the API directly from the
   browser using `VITE_ANTHROPIC_API_KEY` from `.env`.
 
 Without any key configured, everything else works; the analyze button shows a
 friendly error.
 
-## Deploy to Cloudflare Pages
+## Deploy to Cloudflare (Worker + static assets)
+
+Deploys as a Cloudflare **Worker** that serves the built site and handles
+`POST /api/analyze` — see `worker/index.js` and `wrangler.jsonc`.
 
 1. Push this folder to a GitHub repo (`.env` is git-ignored).
-2. Cloudflare dashboard → **Workers & Pages → Create → Pages → Connect to Git**
+2. Cloudflare dashboard → **Workers & Pages → Create → Connect to Git**
    → pick the repo.
-3. Build settings: framework preset **Vite** (or manually: build command
-   `npm run build`, output directory `dist`). The `functions/` directory is
-   detected automatically.
+3. Build command `npm run build`; deploy command `npx wrangler deploy`.
+   The `assets` block in `wrangler.jsonc` serves everything in `dist/`.
 4. After the first deploy: **Settings → Variables and Secrets** → add
    `ANTHROPIC_API_KEY` (type: Secret) with your Anthropic key → redeploy.
-5. Your site is live at `https://<project>.pages.dev` (custom domain optional).
+5. Your site is live at `https://<worker>.<subdomain>.workers.dev`
+   (custom domain optional).
 
 ## Data & privacy
 
@@ -73,5 +77,6 @@ friendly error.
 - `src/pages/Home.jsx` — landing page
 - `src/pages/PrescribeTool.jsx` — diuretic prescribing wizard
 - `src/MonitorPlatform.jsx` — patient portal, PIN gate, physician dashboard, storage layer
-- `functions/api/analyze.js` — Cloudflare Pages Function proxying the Claude API call
+- `worker/index.js` — Cloudflare Worker: serves `dist/` and proxies `/api/analyze`
+- `wrangler.jsonc` — Worker + static-assets deploy config
 - `hf-*.jsx` in the root are the original Claude.ai artifact files (kept for reference)
