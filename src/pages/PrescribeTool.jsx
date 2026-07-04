@@ -189,40 +189,108 @@ const getNote = (notes, lang) => {
   return NOTES_ES[notes] || notes;
 };
 
-const emptyDrug = () => ({ drug: "", dose: "", frequency: "" });
+// Spanish versions of the predefined frequency options for the printed handout.
+// Custom ("Other") frequencies are free text and fall back to the raw value.
+const FREQ_ES = {
+  "once daily": "una vez al día",
+  "twice daily": "dos veces al día",
+  "three times daily": "tres veces al día",
+  "once": "una vez",
+  "30 min before loop diuretic": "30 min antes del diurético de asa",
+  "over 4 hours SC infusion": "en infusión SC durante 4 horas",
+  "every other day": "un día sí y un día no",
+  "every third day": "cada tres días",
+  "Monday-Wednesday-Friday": "lunes, miércoles y viernes",
+};
+
+const getFreq = (freq, lang) => {
+  if (lang === "en" || !freq) return freq;
+  return FREQ_ES[freq] || freq;
+};
+
+// Common frequency options shown at the top of every frequency list
+const COMMON_FREQUENCIES = ["every other day", "every third day", "Monday-Wednesday-Friday"];
+const OTHER = "__other__";
+
+// Resolve the printable medication name (handles the custom "Other" entry)
+const drugDisplayName = (d) => (d.drug === OTHER ? d.drugName : MEDICATIONS[d.drug]?.label) || "";
+
+const emptyDrug = () => ({ drug: "", dose: "", frequency: "", drugName: "", doseOther: false, freqOther: false });
 const emptyTier = () => ({ drugs: [emptyDrug()], notes: "", notesPreset: "" });
 
 // ─── SingleMedRow ────────────────────────────────────────────────────────────
 function SingleMedRow({ value, onChange, onRemove, showRemove, index, showLabels }) {
-  const selected = value.drug ? MEDICATIONS[value.drug] : null;
+  const isCustomMed = value.drug === OTHER;
+  const selected = !isCustomMed && value.drug ? MEDICATIONS[value.drug] : null;
+  const doseActive = !!selected || isCustomMed;
+  const freqList = isCustomMed
+    ? COMMON_FREQUENCIES
+    : selected
+      ? [...COMMON_FREQUENCIES, ...selected.frequency.filter((f) => !COMMON_FREQUENCIES.includes(f))]
+      : [];
+
+  const handleDrug = (e) =>
+    onChange({ drug: e.target.value, drugName: "", dose: "", frequency: "", doseOther: false, freqOther: false });
+  const handleDose = (e) => {
+    const v = e.target.value;
+    if (v === OTHER) onChange({ ...value, doseOther: true, dose: "" });
+    else onChange({ ...value, doseOther: false, dose: v });
+  };
+  const handleFreq = (e) => {
+    const v = e.target.value;
+    if (v === OTHER) onChange({ ...value, freqOther: true, frequency: "" });
+    else onChange({ ...value, freqOther: false, frequency: v });
+  };
+
   return (
     <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
       <div style={styles.indexBadge}>{index + 1}</div>
       <div style={{ flex: "1 1 170px" }}>
         {showLabels && <label style={styles.fieldLabel}>Medication</label>}
-        <select style={styles.select} value={value.drug}
-          onChange={(e) => onChange({ ...value, drug: e.target.value, dose: "", frequency: "" })}>
+        <select style={styles.select} value={value.drug} onChange={handleDrug}>
           <option value="">— Select drug —</option>
           {Object.entries(MEDICATIONS).map(([key, med]) => (
             <option key={key} value={key}>{med.label}</option>
           ))}
+          <option value={OTHER}>Other…</option>
         </select>
+        {isCustomMed && (
+          <input style={{ ...styles.select, marginTop: 6 }} type="text" placeholder="Medication name"
+            value={value.drugName || ""} onChange={(e) => onChange({ ...value, drugName: e.target.value })} />
+        )}
       </div>
       <div style={{ flex: "1 1 110px" }}>
         {showLabels && <label style={styles.fieldLabel}>Dose</label>}
-        <select style={{ ...styles.select, opacity: selected ? 1 : 0.45 }} value={value.dose}
-          disabled={!selected} onChange={(e) => onChange({ ...value, dose: e.target.value })}>
-          <option value="">— Dose —</option>
-          {selected && selected.doses.map((d) => <option key={d} value={d}>{d}</option>)}
-        </select>
+        {isCustomMed ? (
+          <input style={styles.select} type="text" placeholder="Dose (e.g. 25 mg)"
+            value={value.dose} onChange={(e) => onChange({ ...value, dose: e.target.value })} />
+        ) : (
+          <>
+            <select style={{ ...styles.select, opacity: doseActive ? 1 : 0.45 }}
+              value={value.doseOther ? OTHER : value.dose} disabled={!doseActive} onChange={handleDose}>
+              <option value="">— Dose —</option>
+              {selected && selected.doses.map((d) => <option key={d} value={d}>{d}</option>)}
+              {selected && <option value={OTHER}>Other…</option>}
+            </select>
+            {value.doseOther && (
+              <input style={{ ...styles.select, marginTop: 6 }} type="text" placeholder="Custom dose"
+                value={value.dose} onChange={(e) => onChange({ ...value, dose: e.target.value })} />
+            )}
+          </>
+        )}
       </div>
       <div style={{ flex: "1 1 160px" }}>
         {showLabels && <label style={styles.fieldLabel}>Frequency</label>}
-        <select style={{ ...styles.select, opacity: selected ? 1 : 0.45 }} value={value.frequency}
-          disabled={!selected} onChange={(e) => onChange({ ...value, frequency: e.target.value })}>
+        <select style={{ ...styles.select, opacity: doseActive ? 1 : 0.45 }}
+          value={value.freqOther ? OTHER : value.frequency} disabled={!doseActive} onChange={handleFreq}>
           <option value="">— Frequency —</option>
-          {selected && selected.frequency.map((f) => <option key={f} value={f}>{f}</option>)}
+          {freqList.map((f) => <option key={f} value={f}>{f}</option>)}
+          {doseActive && <option value={OTHER}>Other…</option>}
         </select>
+        {value.freqOther && (
+          <input style={{ ...styles.select, marginTop: 6 }} type="text" placeholder="Custom frequency"
+            value={value.frequency} onChange={(e) => onChange({ ...value, frequency: e.target.value })} />
+        )}
       </div>
       {showRemove
         ? <button onClick={onRemove} style={styles.removBtn} title="Remove">✕</button>
@@ -329,7 +397,7 @@ function PrintView({ patient, date, physician, tiers, lang }) {
         <div style={printStyles.tiersContainer}>
           {tierDefs.map((tier, i) => {
             const rx = tiers[i];
-            const activeDrugs = rx.drugs.filter(d => d.drug && d.dose && d.frequency);
+            const activeDrugs = rx.drugs.filter(d => drugDisplayName(d) && d.dose && d.frequency);
             const printNote = getNote(rx.notes, lang);
             return (
               <div key={tier.number} style={{ ...printStyles.tierCard, borderColor: tier.borderColor, background: tier.lightColor }}>
@@ -353,7 +421,7 @@ function PrintView({ patient, date, physician, tiers, lang }) {
                             <span style={{ ...printStyles.drugBadge, background: tier.color }}>
                               {t.rxLabel(idx + 1)}
                             </span>
-                            <span><strong>{MEDICATIONS[d.drug].label}</strong> {d.dose} — {d.frequency}</span>
+                            <span><strong>{drugDisplayName(d)}</strong> {d.dose} — {getFreq(d.frequency, lang)}</span>
                           </div>
                         ))}
                       </div>
@@ -415,7 +483,7 @@ function LangToggle({ lang, setLang }) {
 export default function PrescribeTool() {
   const [step, setStep] = useState(0);
   const [patient, setPatient] = useState("");
-  const [physician, setPhysician] = useState("");
+  const [physician, setPhysician] = useState("Sandra Benelli ARNP / Dr. José Luis Velázquez C.");
   const [date, setDate] = useState(new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }));
   const [tiers, setTiers] = useState([emptyTier(), emptyTier(), emptyTier()]);
   const [lang, setLang] = useState("en");
