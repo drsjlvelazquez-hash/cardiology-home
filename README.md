@@ -61,14 +61,31 @@ Deploys as a Cloudflare **Worker** that serves the built site and handles
 
 ## Data & privacy
 
-- Patient data currently lives in the browser's `localStorage` only
-  (`hf_pt_{CODE}` keys) — no backend, no names, codes assigned in clinic.
-- **Limitation:** localStorage is per-browser/per-device. A patient's history
-  exists only on the device where they entered it, and the physician dashboard
-  only sees patients who registered in that same browser.
-- **Planned fix:** migrate storage to Supabase so data syncs across devices —
-  see [SUPABASE_PLAN.md](SUPABASE_PLAN.md). The storage layer is isolated in the
-  `DB` object in `src/MonitorPlatform.jsx`, so this is a contained change.
+- No names anywhere — each patient is a pseudonymous code (`HF-XXXX`) assigned in
+  clinic; the code-to-patient mapping stays on paper in the office.
+- **Storage is pluggable** (`src/db.js`):
+  - **Supabase** (shared clinic database) is used automatically when
+    `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` are set. Patients log from any
+    device and the physician dashboard sees everyone.
+  - **localStorage** (per-device) is the fallback when those vars are blank —
+    used by local dev without keys and the single-file desktop build.
+- On the first load after Supabase is enabled, any patients already in that
+  device's localStorage are migrated up to the database automatically (one-time,
+  idempotent).
+
+### Enabling Supabase
+
+1. Create a free project at [supabase.com](https://supabase.com) (dedicated to
+   this app — do not share with other sites).
+2. In the SQL editor, run [supabase/schema.sql](supabase/schema.sql) to create
+   the `patients` table and its access policies.
+3. Copy **Project URL** and **anon public key** from Project Settings → API.
+4. Add them to `.env` (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`) for local
+   dev, and to the Cloudflare dashboard (**Settings → Variables**, plain Variables
+   — the anon key is safe to expose) for the deployed site, then redeploy.
+
+See [SUPABASE_PLAN.md](SUPABASE_PLAN.md) for the design and the dashboard-security
+options (anon key now, serverless PIN gate later).
 
 ## Source layout
 
@@ -76,7 +93,10 @@ Deploys as a Cloudflare **Worker** that serves the built site and handles
 - `src/components/Header.jsx` — shared clinic header, EN/ES toggle, 911 strip
 - `src/pages/Home.jsx` — landing page
 - `src/pages/PrescribeTool.jsx` — diuretic prescribing wizard
-- `src/MonitorPlatform.jsx` — patient portal, PIN gate, physician dashboard, storage layer
+- `src/MonitorPlatform.jsx` — patient portal, PIN gate, physician dashboard
+- `src/db.js` — storage layer (Supabase / localStorage) + one-time migration
+- `src/supabaseClient.js` — Supabase client, enabled via `VITE_SUPABASE_*`
+- `supabase/schema.sql` — table + RLS policies to run in the Supabase SQL editor
 - `worker/index.js` — Cloudflare Worker: serves `dist/` and proxies `/api/analyze`
 - `wrangler.jsonc` — Worker + static-assets deploy config
 - `hf-*.jsx` in the root are the original Claude.ai artifact files (kept for reference)

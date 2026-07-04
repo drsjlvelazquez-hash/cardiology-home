@@ -2,26 +2,9 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer } from "recharts";
 
-// ─── Storage Helper (browser localStorage) ───────────────────────────────────
-// Kept async so call sites are unchanged from the original window.storage API.
-const DB = {
-  async get(key) {
-    try { const r = localStorage.getItem(key); return r ? JSON.parse(r) : null; }
-    catch { return null; }
-  },
-  async set(key, val) {
-    try { localStorage.setItem(key, JSON.stringify(val)); return true; }
-    catch { return false; }
-  },
-  async list(prefix) {
-    try { return Object.keys(localStorage).filter(k => k.startsWith(prefix)); }
-    catch { return []; }
-  },
-  async del(key) {
-    try { localStorage.removeItem(key); return true; }
-    catch { return false; }
-  }
-};
+// Storage goes through the shared DB layer (Supabase when configured, otherwise
+// per-device localStorage). See src/db.js.
+import { DB } from "./db";
 
 const genId = () => "HF-" + Math.random().toString(36).substr(2, 4).toUpperCase();
 const today = () => new Date().toISOString().split("T")[0];
