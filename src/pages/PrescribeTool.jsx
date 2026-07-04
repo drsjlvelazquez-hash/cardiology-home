@@ -134,25 +134,25 @@ const TIER_INFO = {
 
 const PRESET_NOTES = {
   1: [
-    { label: "Select a template or type below…", value: "" },
-    { label: "Metolazone → loop diuretic sequence", value: "Take Metolazone first. Wait 30 minutes, then take your Bumetanide or Torsemide. This sequence makes both medications more effective." },
-    { label: "Morning only — avoid evening dose", value: "Take all medications in the morning to avoid nighttime urination. Do not take after noon." },
-    { label: "Take with potassium supplement", value: "Take your diuretic with a potassium supplement as directed. This helps prevent low potassium levels." },
-    { label: "Monitor electrolytes in 3–5 days", value: "Get a blood electrolyte check within 3–5 days of starting this regimen. Call the office with your results." },
+    { label: "Select a template or type below…", labelEs: "Seleccione una plantilla o escriba abajo…", value: "" },
+    { label: "Metolazone → loop diuretic sequence", labelEs: "Metolazona → secuencia con diurético de asa", value: "Take Metolazone first. Wait 30 minutes, then take your Bumetanide or Torsemide. This sequence makes both medications more effective." },
+    { label: "Morning only — avoid evening dose", labelEs: "Solo por la mañana — evitar dosis nocturna", value: "Take all medications in the morning to avoid nighttime urination. Do not take after noon." },
+    { label: "Take with potassium supplement", labelEs: "Tomar con suplemento de potasio", value: "Take your diuretic with a potassium supplement as directed. This helps prevent low potassium levels." },
+    { label: "Monitor electrolytes in 3–5 days", labelEs: "Controlar electrolitos en 3–5 días", value: "Get a blood electrolyte check within 3–5 days of starting this regimen. Call the office with your results." },
   ],
   2: [
-    { label: "Select a template or type below…", value: "" },
-    { label: "Metolazone + loop diuretic sequence (Tier 2)", value: "Take Metolazone first. Wait 30 minutes, then take your Bumetanide or Torsemide. This combination is powerful — expect significantly increased urination for several hours." },
-    { label: "Add to Tier 1 — do not stop Tier 1", value: "Take this medication IN ADDITION to your Tier 1 medications. Do not stop your Tier 1 regimen. Continue both until your weight returns to baseline." },
-    { label: "Single extra dose, then recheck weight", value: "Take this as one extra dose today. Recheck your weight tomorrow morning. If your weight is still rising, move to Tier 3 and call the office." },
-    { label: "Urgent electrolyte check within 48–72 hrs", value: "Get a blood electrolyte check within 48–72 hours of taking this dose. Call the office with your results so we can monitor your kidney function." },
+    { label: "Select a template or type below…", labelEs: "Seleccione una plantilla o escriba abajo…", value: "" },
+    { label: "Metolazone + loop diuretic sequence (Tier 2)", labelEs: "Metolazona + diurético de asa (Nivel 2)", value: "Take Metolazone first. Wait 30 minutes, then take your Bumetanide or Torsemide. This combination is powerful — expect significantly increased urination for several hours." },
+    { label: "Add to Tier 1 — do not stop Tier 1", labelEs: "Agregar al Nivel 1 — no suspender el Nivel 1", value: "Take this medication IN ADDITION to your Tier 1 medications. Do not stop your Tier 1 regimen. Continue both until your weight returns to baseline." },
+    { label: "Single extra dose, then recheck weight", labelEs: "Una dosis extra, luego volver a pesarse", value: "Take this as one extra dose today. Recheck your weight tomorrow morning. If your weight is still rising, move to Tier 3 and call the office." },
+    { label: "Urgent electrolyte check within 48–72 hrs", labelEs: "Control urgente de electrolitos en 48–72 h", value: "Get a blood electrolyte check within 48–72 hours of taking this dose. Call the office with your results so we can monitor your kidney function." },
   ],
   3: [
-    { label: "Select a template or type below…", value: "" },
-    { label: "Start SC + continue orals + call office now", value: "Start your Furosemide SC and continue taking your other oral diuretics as usual. Call the cardiology office immediately to notify us you have reached this level. Do not wait." },
-    { label: "SC infusion + call office right away", value: "Begin the Furosemide SC infusion as instructed. Call the office right away — we will guide your next steps or arrange an urgent clinic visit." },
-    { label: "All medications + urgent call", value: "Take all three medications as listed in order. Call your cardiologist's office immediately. If you cannot reach us within 30 minutes, go to the nearest emergency room." },
-    { label: "Emergency escalation — 911 if severe symptoms", value: "This is an urgent situation. Take your medications and call the office NOW. If you feel short of breath at rest, have chest pain, or cannot lie flat — call 911 immediately. Do not drive yourself." },
+    { label: "Select a template or type below…", labelEs: "Seleccione una plantilla o escriba abajo…", value: "" },
+    { label: "Start SC + continue orals + call office now", labelEs: "Iniciar SC + continuar orales + llamar ahora", value: "Start your Furosemide SC and continue taking your other oral diuretics as usual. Call the cardiology office immediately to notify us you have reached this level. Do not wait." },
+    { label: "SC infusion + call office right away", labelEs: "Infusión SC + llamar de inmediato", value: "Begin the Furosemide SC infusion as instructed. Call the office right away — we will guide your next steps or arrange an urgent clinic visit." },
+    { label: "All medications + urgent call", labelEs: "Todos los medicamentos + llamada urgente", value: "Take all three medications as listed in order. Call your cardiologist's office immediately. If you cannot reach us within 30 minutes, go to the nearest emergency room." },
+    { label: "Emergency escalation — 911 if severe symptoms", labelEs: "Escalada de emergencia — 911 si síntomas graves", value: "This is an urgent situation. Take your medications and call the office NOW. If you feel short of breath at rest, have chest pain, or cannot lie flat — call 911 immediately. Do not drive yourself." },
   ],
 };
 
@@ -184,11 +184,6 @@ const NOTES_ES = {
     "Esta es una situación urgente. Tome sus medicamentos y llame al consultorio AHORA. Si siente falta de aire en reposo, dolor en el pecho, o no puede acostarse plano — llame al 911 de inmediato. No maneje solo.",
 };
 
-const getNote = (notes, lang) => {
-  if (lang === "en" || !notes) return notes;
-  return NOTES_ES[notes] || notes;
-};
-
 // Spanish versions of the predefined frequency options for the printed handout.
 // Custom ("Other") frequencies are free text and fall back to the raw value.
 const FREQ_ES = {
@@ -216,7 +211,8 @@ const OTHER = "__other__";
 const drugDisplayName = (d) => (d.drug === OTHER ? d.drugName : MEDICATIONS[d.drug]?.label) || "";
 
 const emptyDrug = () => ({ drug: "", dose: "", frequency: "", drugName: "", doseOther: false, freqOther: false });
-const emptyTier = () => ({ drugs: [emptyDrug()], notes: "", notesPreset: "" });
+// notes is stored per handout language so each can be edited and printed verbatim
+const emptyTier = () => ({ drugs: [emptyDrug()], notes: { en: "", es: "" }, notesPreset: "" });
 
 // ─── SingleMedRow ────────────────────────────────────────────────────────────
 function SingleMedRow({ value, onChange, onRemove, showRemove, index, showLabels }) {
@@ -300,14 +296,21 @@ function SingleMedRow({ value, onChange, onRemove, showRemove, index, showLabels
 }
 
 // ─── TierEditor ──────────────────────────────────────────────────────────────
-function TierEditor({ tierInfo, value, onChange }) {
+function TierEditor({ tierInfo, value, onChange, lang }) {
   const { drugs, notes, notesPreset } = value;
   const presets = PRESET_NOTES[tierInfo.number];
 
   const updateDrug = (i, v) => { const next = [...drugs]; next[i] = v; onChange({ ...value, drugs: next }); };
   const addDrug = () => { if (drugs.length < tierInfo.maxMeds) onChange({ ...value, drugs: [...drugs, emptyDrug()] }); };
   const removeDrug = (i) => onChange({ ...value, drugs: drugs.filter((_, idx) => idx !== i) });
-  const handlePreset = (e) => onChange({ ...value, notesPreset: e.target.value, notes: e.target.value });
+  // Selecting a template fills BOTH languages (so switching handout language keeps a
+  // matching translation), but each language stays independently editable below.
+  const handlePreset = (e) => {
+    const en = e.target.value;
+    const es = NOTES_ES[en] || en;
+    onChange({ ...value, notesPreset: en, notes: { en, es } });
+  };
+  const editNote = (e) => onChange({ ...value, notes: { ...notes, [lang]: e.target.value }, notesPreset: "" });
   const showMetoHint = drugs.length >= 2 && drugs[0].drug === "metolazone" && drugs[1].drug && drugs[1].drug !== "metolazone";
 
   return (
@@ -341,14 +344,22 @@ function TierEditor({ tierInfo, value, onChange }) {
         </div>
       )}
       <div style={{ marginTop: 16 }}>
-        <label style={styles.fieldLabel}>Patient Instructions</label>
+        <label style={styles.fieldLabel}>
+          {lang === "es" ? "Instrucciones para el Paciente (Español)" : "Patient Instructions (English)"}
+        </label>
         <select style={{ ...styles.select, marginBottom: 8 }} value={notesPreset} onChange={handlePreset}>
-          {presets.map((p) => <option key={p.label} value={p.value}>{p.label}</option>)}
+          {presets.map((p) => (
+            <option key={p.value || "placeholder"} value={p.value}>
+              {lang === "es" ? (p.labelEs || p.label) : p.label}
+            </option>
+          ))}
         </select>
         <textarea style={styles.textarea} rows={3}
-          placeholder="Select a template above, or type custom instructions here…"
-          value={notes}
-          onChange={(e) => onChange({ ...value, notes: e.target.value, notesPreset: "" })} />
+          placeholder={lang === "es"
+            ? "Seleccione una plantilla arriba, o escriba instrucciones personalizadas aquí…"
+            : "Select a template above, or type custom instructions here…"}
+          value={notes[lang]}
+          onChange={editNote} />
       </div>
     </div>
   );
@@ -398,7 +409,7 @@ function PrintView({ patient, date, physician, tiers, lang }) {
           {tierDefs.map((tier, i) => {
             const rx = tiers[i];
             const activeDrugs = rx.drugs.filter(d => drugDisplayName(d) && d.dose && d.frequency);
-            const printNote = getNote(rx.notes, lang);
+            const printNote = rx.notes?.[lang];
             return (
               <div key={tier.number} style={{ ...printStyles.tierCard, borderColor: tier.borderColor, background: tier.lightColor }}>
                 <div style={{ ...printStyles.tierBadge, background: tier.color }}>
@@ -561,8 +572,14 @@ export default function PrescribeTool() {
                 <strong>Prescribing for:</strong> {patient} &nbsp;·&nbsp; {date}
                 <button style={styles.editInfoBtn} onClick={() => setStep(0)}>Edit info</button>
               </div>
+              <div style={styles.langBar}>
+                <span style={{ fontSize: 12, color: "#475569" }}>
+                  Patient-instruction language — edit each template in the language it will print:
+                </span>
+                <LangToggle lang={lang} setLang={setLang} />
+              </div>
               {tierInfoEn.map((tier, i) => (
-                <TierEditor key={i} tierInfo={tier} value={tiers[i]} onChange={(v) => updateTier(i, v)} />
+                <TierEditor key={i} tierInfo={tier} value={tiers[i]} onChange={(v) => updateTier(i, v)} lang={lang} />
               ))}
               <div style={styles.actions}>
                 <button style={styles.btnSecondary} onClick={() => setStep(0)}>← Back</button>
@@ -627,6 +644,7 @@ const styles = {
   drugHint: { fontSize: 11, color: "#6b7280", fontStyle: "italic", marginBottom: 4, marginLeft: 32 },
   hintBox: { marginTop: 10, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 6, padding: "7px 12px", fontSize: 12, color: "#92400e" },
   infoBar: { background: "#dbeafe", border: "1px solid #93c5fd", borderRadius: 8, padding: "10px 16px", fontSize: 13, color: "#1e3a5f", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" },
+  langBar: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, padding: "8px 14px" },
   editInfoBtn: { background: "none", border: "none", color: "#0f4c75", fontSize: 12, cursor: "pointer", textDecoration: "underline", marginLeft: "auto" },
   previewWrapper: { background: "white", borderRadius: 12, boxShadow: "0 2px 20px rgba(0,0,0,0.1)", overflow: "hidden" },
   previewToolbar: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 },
