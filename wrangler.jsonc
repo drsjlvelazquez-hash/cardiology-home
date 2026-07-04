@@ -1,5 +1,5 @@
 {
-  "name": "cardiology-home",
+  "name": "heart-failure",
   "main": "worker/index.js",
   "compatibility_date": "2025-06-01",
   "assets": {
