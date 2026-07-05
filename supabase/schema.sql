@@ -9,9 +9,13 @@ create table if not exists patients (
   entries       jsonb default '[]'::jsonb, -- [{ date, weight }]
   last_analysis jsonb,                     -- { tier, summary, reasoning, action, maxGain, ... }
   last_tier     int,                       -- 1 | 2 | 3
+  diuretic_plan jsonb,                     -- { physician, date, tiers:[{ drugs:[{drug,drugName,dose,frequency}], notes:{en,es} }] }
   created_at    date default now(),
   last_updated  date default now()
 );
+
+-- For clinics whose table predates the diuretic-plan feature: add the column in place.
+alter table patients add column if not exists diuretic_plan jsonb;
 
 alter table patients enable row level security;
 

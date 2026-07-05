@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { HashRouter, Routes, Route } from "react-router-dom";
 import Header from "./components/Header.jsx";
 import Home from "./pages/Home.jsx";
-import PrescribeTool, { PatientPlanView } from "./pages/PrescribeTool.jsx";
+import { PatientPlanView } from "./diuretic/planKit.jsx";
 import { PatientPage, PhysicianPage } from "./MonitorPlatform.jsx";
 import { migrateLocalToSupabase } from "./db";
 
@@ -21,8 +21,7 @@ export default function App() {
         <Route path="/" element={<Home lang={lang} />} />
         <Route path="/patient" element={<PatientPage lang={lang} />} />
         <Route path="/physician" element={<PhysicianPage />} />
-        <Route path="/prescribe" element={<PrescribeTool />} />
-        <Route path="/plan/:data" element={<PatientPlanView />} />
+        <Route path="/plan/:code" element={<PatientPlanView />} />
       </Routes>
     </HashRouter>
   );

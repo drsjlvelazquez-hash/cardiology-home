@@ -12,12 +12,8 @@ const T = {
     physicianSection: "Physician Tools",
     dashTitle: "Patient Dashboard",
     dashDesc:
-      "Monitor all registered patients, review weight trends, and send alerts. PIN required.",
+      "Register patients, set each patient's baseline and 3-tier diuretic plan, review weight trends, and send alerts. PIN required.",
     dashBtn: "Open Dashboard",
-    rxTitle: "Diuretic Prescribing Tool",
-    rxDesc:
-      "Build a personalized 3-tier diuretic action plan and print a bilingual patient handout.",
-    rxBtn: "Open Prescribing Tool",
     forPatients: "For Patients",
     forProviders: "For Providers",
   },
@@ -32,12 +28,8 @@ const T = {
     physicianSection: "Herramientas para Médicos",
     dashTitle: "Panel de Pacientes",
     dashDesc:
-      "Monitoree a todos los pacientes registrados, revise tendencias de peso y envíe alertas. Requiere PIN.",
+      "Registre pacientes, defina el peso base y el plan de diuréticos de 3 niveles de cada paciente, revise tendencias de peso y envíe alertas. Requiere PIN.",
     dashBtn: "Abrir Panel",
-    rxTitle: "Herramienta de Prescripción de Diuréticos",
-    rxDesc:
-      "Cree un plan de acción de diuréticos de 3 niveles e imprima una hoja bilingüe para el paciente.",
-    rxBtn: "Abrir Herramienta",
     forPatients: "Para Pacientes",
     forProviders: "Para Médicos",
   },
@@ -71,18 +63,6 @@ export default function Home({ lang }) {
 
         <div style={s.sectionLabel}>{t.forProviders}</div>
         <div style={s.providerGrid}>
-          <Link to="/prescribe" style={s.card}>
-            <div style={s.cardIcon}>💊</div>
-            <div style={{ flex: 1 }}>
-              <div style={{ ...s.cardTitle, color: "#0f4c75" }}>
-                {t.rxTitle}
-              </div>
-              <div style={s.cardDesc}>{t.rxDesc}</div>
-            </div>
-            <span style={{ ...s.cardBtn, background: "#0f4c75" }}>
-              {t.rxBtn}
-            </span>
-          </Link>
           <Link to="/physician" style={s.card}>
             <div style={s.cardIcon}>🩺</div>
             <div style={{ flex: 1 }}>

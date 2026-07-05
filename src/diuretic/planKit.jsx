@@ -1,9 +1,16 @@
-import { useState, useMemo } from "react";
+// ─── Diuretic Plan Kit ───────────────────────────────────────────────────────
+// Shared building blocks for the diuretic regimen, used by:
+//   • the physician dashboard  — create/edit a patient's plan (DiureticPlanEditor)
+//   • the printed handout       — PrintView (+ QR that references the patient code)
+//   • the QR target / patient   — PatientPlanView loads the plan from the record
+// The plan lives ON the patient record (patients.diuretic_plan), keyed by the
+// pseudonymous HF-XXXX code — no patient name is stored anywhere.
+import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { QRCodeSVG } from "qrcode.react";
-import LZString from "lz-string";
+import { DB } from "../db";
 
-const MEDICATIONS = {
+export const MEDICATIONS = {
   bumetanide: {
     label: "Bumetanide",
     doses: ["0.5 mg", "1 mg", "1.5 mg", "2 mg"],
@@ -31,16 +38,10 @@ const MEDICATIONS = {
 };
 
 // ─── Translations ───────────────────────────────────────────────────────────
-const T = {
+export const T = {
   en: {
     clinicName: "Heart Failure Clinic",
     clinicSub: "Personalized Diuretic Self-Management Plan",
-    dailyTitle: "📋 Daily Instructions — All Patients",
-    instructions: [
-      { icon: "🧂", title: "Watch Your Salt", body: "Avoid high-sodium foods: pretzels, chips, canned soups, deli meats, fast food. Target less than 2,000 mg sodium per day." },
-      { icon: "💧", title: "Limit Your Fluids", body: "Drink water when thirsty and with meals. Track all fluids. Do not exceed ½ gallon (64 oz / ~2 liters) per day total." },
-      { icon: "⚖️", title: "Weigh Yourself Every Morning", body: "Weigh after urinating, before eating or drinking, on the same scale, every day. Record the number in your weight log." },
-    ],
     planTitle: "💊 Your Personalized Diuretic Action Plan",
     when: "When:",
     action: "Action:",
@@ -52,18 +53,13 @@ const T = {
       items: ["Sudden shortness of breath at rest", "Chest pain or pressure", "Rapid or irregular heartbeat", "Fainting or near-fainting", "Unable to lie flat due to breathlessness"],
     },
     footer: "This plan was provided by your Heart Failure Clinic. Always follow your provider's specific instructions. Keep this sheet with your daily weight log.",
+    codeLabel: "Code:",
     dateLabel: "Date:",
     providerLabel: "Provider:",
   },
   es: {
     clinicName: "Clínica de Insuficiencia Cardíaca",
     clinicSub: "Plan Personalizado de Autocontrol con Diuréticos",
-    dailyTitle: "📋 Instrucciones Diarias — Todos los Pacientes",
-    instructions: [
-      { icon: "🧂", title: "Cuide Su Consumo de Sal", body: "Evite alimentos altos en sodio: pretzels, papitas, sopas enlatadas, embutidos, comida rápida. Meta: menos de 2,000 mg de sodio por día." },
-      { icon: "💧", title: "Limite Sus Líquidos", body: "Beba agua cuando tenga sed y con las comidas. Lleve la cuenta de todos los líquidos que consume. No exceda ½ galón (64 oz / ~2 litros) por día en total." },
-      { icon: "⚖️", title: "Pésese Cada Mañana", body: "Pésese después de orinar, antes de comer o beber, en la misma báscula, todos los días. Anote el número en su registro de peso." },
-    ],
     planTitle: "💊 Su Plan de Acción Personalizado con Diuréticos",
     when: "Cuándo:",
     action: "Acción:",
@@ -75,12 +71,13 @@ const T = {
       items: ["Falta de aire repentina en reposo", "Dolor o presión en el pecho", "Latidos rápidos o irregulares", "Desmayo o sensación de desmayo", "Incapacidad para acostarse plano por falta de aire"],
     },
     footer: "Este plan fue proporcionado por su Clínica de Insuficiencia Cardíaca. Siga siempre las instrucciones específicas de su médico. Guarde esta hoja junto con su registro diario de peso.",
+    codeLabel: "Código:",
     dateLabel: "Fecha:",
     providerLabel: "Médico:",
   },
 };
 
-const TIER_INFO = {
+export const TIER_INFO = {
   en: [
     {
       number: 1, color: "#1a7a4a", lightColor: "#eaf7f0", borderColor: "#a8dfc0", icon: "●",
@@ -188,7 +185,6 @@ const NOTES_ES = {
 };
 
 // Spanish versions of the predefined frequency options for the printed handout.
-// Custom ("Other") frequencies are free text and fall back to the raw value.
 const FREQ_ES = {
   "once daily": "una vez al día",
   "twice daily": "dos veces al día",
@@ -206,58 +202,28 @@ const getFreq = (freq, lang) => {
   return FREQ_ES[freq] || freq;
 };
 
-// Common frequency options shown at the top of every frequency list
 const COMMON_FREQUENCIES = ["every other day", "every third day", "Monday-Wednesday-Friday"];
 const OTHER = "__other__";
 
-// Resolve the printable medication name (handles the custom "Other" entry)
 const drugDisplayName = (d) => (d.drug === OTHER ? d.drugName : MEDICATIONS[d.drug]?.label) || "";
 
-// ─── Plan sharing (QR code) ──────────────────────────────────────────────────
-// The finished plan is compressed into a URL-safe string that lives in the page's
-// hash fragment (#/plan/<data>). Because it is in the fragment, it never reaches
-// the server — the patient's name and plan stay entirely client-side.
-const encodePlan = ({ patient, date, physician, tiers, lang }) => {
-  const payload = {
-    p: patient, dt: date, ph: physician, l: lang,
-    t: tiers.map((tier) => ({
-      d: tier.drugs
-        .filter((dr) => drugDisplayName(dr) && dr.dose && dr.frequency)
-        .map((dr) => ({ k: dr.drug, o: dr.drugName || "", s: dr.dose, f: dr.frequency })),
-      n: { en: tier.notes?.en || "", es: tier.notes?.es || "" },
-    })),
-  };
-  return LZString.compressToEncodedURIComponent(JSON.stringify(payload));
-};
+export const emptyDrug = () => ({ drug: "", dose: "", frequency: "", drugName: "", doseOther: false, freqOther: false });
+export const emptyTier = () => ({ drugs: [emptyDrug()], notes: { en: "", es: "" }, notesPreset: "" });
+export const emptyPlan = () => ({
+  physician: "Sandra Benelli ARNP / Dr. José Luis Velázquez C.",
+  date: new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }),
+  tiers: [emptyTier(), emptyTier(), emptyTier()],
+});
 
-const decodePlan = (encoded) => {
-  try {
-    const payload = JSON.parse(LZString.decompressFromEncodedURIComponent(encoded));
-    return {
-      patient: payload.p || "",
-      date: payload.dt || "",
-      physician: payload.ph || "",
-      lang: payload.l === "es" ? "es" : "en",
-      tiers: (payload.t || []).map((tier) => ({
-        drugs: (tier.d || []).map((dr) => ({
-          drug: dr.k, drugName: dr.o || "", dose: dr.s || "", frequency: dr.f || "",
-        })),
-        notes: { en: tier.n?.en || "", es: tier.n?.es || "" },
-      })),
-    };
-  } catch {
-    return null;
-  }
-};
+// True when a plan actually has at least one complete drug row somewhere.
+export const planHasContent = (plan) =>
+  !!plan?.tiers?.some((t) => t.drugs?.some((d) => drugDisplayName(d) && d.dose && d.frequency));
 
-// Full shareable link. Data goes in the hash PATH (not a query) so that "+" in the
-// compressed payload is not misread as a space by query-string parsers.
-const buildPlanUrl = (plan) =>
-  `${window.location.origin}${window.location.pathname}#/plan/${encodePlan(plan)}`;
-
-const emptyDrug = () => ({ drug: "", dose: "", frequency: "", drugName: "", doseOther: false, freqOther: false });
-// notes is stored per handout language so each can be edited and printed verbatim
-const emptyTier = () => ({ drugs: [emptyDrug()], notes: { en: "", es: "" }, notesPreset: "" });
+// ─── Reference QR ─────────────────────────────────────────────────────────────
+// The QR points at the patient's record (#/plan/HF-XXXX), so it always renders the
+// CURRENT regimen and carries no name — the code is the only identifier.
+export const buildPlanUrl = (code) =>
+  `${window.location.origin}${window.location.pathname}#/plan/${code}`;
 
 // ─── SingleMedRow ────────────────────────────────────────────────────────────
 function SingleMedRow({ value, onChange, onRemove, showRemove, index, showLabels }) {
@@ -341,15 +307,13 @@ function SingleMedRow({ value, onChange, onRemove, showRemove, index, showLabels
 }
 
 // ─── TierEditor ──────────────────────────────────────────────────────────────
-function TierEditor({ tierInfo, value, onChange, lang }) {
+export function TierEditor({ tierInfo, value, onChange, lang }) {
   const { drugs, notes, notesPreset } = value;
   const presets = PRESET_NOTES[tierInfo.number];
 
   const updateDrug = (i, v) => { const next = [...drugs]; next[i] = v; onChange({ ...value, drugs: next }); };
   const addDrug = () => { if (drugs.length < tierInfo.maxMeds) onChange({ ...value, drugs: [...drugs, emptyDrug()] }); };
   const removeDrug = (i) => onChange({ ...value, drugs: drugs.filter((_, idx) => idx !== i) });
-  // Selecting a template fills BOTH languages (so switching handout language keeps a
-  // matching translation), but each language stays independently editable below.
   const handlePreset = (e) => {
     const en = e.target.value;
     const es = NOTES_ES[en] || en;
@@ -410,8 +374,64 @@ function TierEditor({ tierInfo, value, onChange, lang }) {
   );
 }
 
+// ─── Language Toggle ─────────────────────────────────────────────────────────
+export function LangToggle({ lang, setLang }) {
+  return (
+    <div style={styles.langToggleWrap}>
+      <span style={styles.langToggleLabel}>Handout Language:</span>
+      <div style={styles.langToggleBtns}>
+        <button onClick={() => setLang("en")}
+          style={{ ...styles.langBtn, ...(lang === "en" ? styles.langBtnActive : {}) }}>
+          🇺🇸 English
+        </button>
+        <button onClick={() => setLang("es")}
+          style={{ ...styles.langBtn, ...(lang === "es" ? styles.langBtnActiveEs : {}) }}>
+          🇲🇽 Español
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── DiureticPlanEditor ──────────────────────────────────────────────────────
+// The full 3-tier regimen editor, reused by the physician dashboard for both
+// creating a new patient's plan and editing an existing one. `value` is a plan
+// object ({ physician, date, tiers }); `onChange` receives the updated plan.
+export function DiureticPlanEditor({ value, onChange }) {
+  const [editLang, setEditLang] = useState("en");
+  const updateTier = (i, v) => { const next = [...value.tiers]; next[i] = v; onChange({ ...value, tiers: next }); };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+        <div style={{ flex: "1 1 240px" }}>
+          <label style={styles.fieldLabel}>Prescribing Provider</label>
+          <input type="text" style={styles.select} value={value.physician}
+            onChange={(e) => onChange({ ...value, physician: e.target.value })} />
+        </div>
+        <div style={{ flex: "1 1 140px" }}>
+          <label style={styles.fieldLabel}>Date</label>
+          <input type="text" style={styles.select} value={value.date}
+            onChange={(e) => onChange({ ...value, date: e.target.value })} />
+        </div>
+      </div>
+      <div style={styles.langBar}>
+        <span style={{ fontSize: 12, color: "#475569" }}>
+          Patient-instruction language — edit each template in the language it will print:
+        </span>
+        <LangToggle lang={editLang} setLang={setEditLang} />
+      </div>
+      {TIER_INFO.en.map((tier, i) => (
+        <TierEditor key={i} tierInfo={tier} value={value.tiers[i]} onChange={(v) => updateTier(i, v)} lang={editLang} />
+      ))}
+    </div>
+  );
+}
+
 // ─── PrintView ───────────────────────────────────────────────────────────────
-function PrintView({ patient, date, physician, tiers, lang, planUrl }) {
+// The printable bilingual handout. Identified by the pseudonymous `code`
+// (no patient name). `planUrl` renders the reference QR when provided.
+export function PrintView({ code, date, physician, tiers, lang, planUrl }) {
   const t = T[lang];
   const tierDefs = TIER_INFO[lang];
 
@@ -424,24 +444,9 @@ function PrintView({ patient, date, physician, tiers, lang, planUrl }) {
           <div style={printStyles.clinicSub}>{t.clinicSub}</div>
         </div>
         <div style={{ textAlign: "right" }}>
-          <div style={printStyles.patientName}>{patient || (lang === "es" ? "Paciente" : "Patient")}</div>
+          {code && <div style={printStyles.patientCode}>{t.codeLabel} {code}</div>}
           <div style={printStyles.meta}>{t.dateLabel} {date}</div>
           {physician && <div style={printStyles.meta}>{t.providerLabel} {physician}</div>}
-        </div>
-      </div>
-
-      <div style={printStyles.divider} />
-
-      {/* Universal instructions */}
-      <div style={printStyles.section}>
-        <div style={printStyles.sectionTitle}>{t.dailyTitle}</div>
-        <div style={printStyles.instructionGrid}>
-          {t.instructions.map(({ icon, title, body }) => (
-            <div key={title} style={printStyles.instructionCard}>
-              <div style={printStyles.instructionIcon}>{icon}</div>
-              <div><strong>{title}</strong><div style={printStyles.instructionText}>{body}</div></div>
-            </div>
-          ))}
         </div>
       </div>
 
@@ -532,205 +537,62 @@ function PrintView({ patient, date, physician, tiers, lang, planUrl }) {
   );
 }
 
-// ─── Language Toggle ─────────────────────────────────────────────────────────
-function LangToggle({ lang, setLang }) {
-  return (
-    <div style={styles.langToggleWrap}>
-      <span style={styles.langToggleLabel}>Handout Language:</span>
-      <div style={styles.langToggleBtns}>
-        <button
-          onClick={() => setLang("en")}
-          style={{ ...styles.langBtn, ...(lang === "en" ? styles.langBtnActive : {}) }}>
-          🇺🇸 English
-        </button>
-        <button
-          onClick={() => setLang("es")}
-          style={{ ...styles.langBtn, ...(lang === "es" ? styles.langBtnActiveEs : {}) }}>
-          🇲🇽 Español
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ─── Prescribe Tool ──────────────────────────────────────────────────────────
-export default function PrescribeTool() {
-  const [step, setStep] = useState(0);
-  const [patient, setPatient] = useState("");
-  const [physician, setPhysician] = useState("Sandra Benelli ARNP / Dr. José Luis Velázquez C.");
-  const [date, setDate] = useState(new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }));
-  const [tiers, setTiers] = useState([emptyTier(), emptyTier(), emptyTier()]);
-  const [lang, setLang] = useState("en");
-
-  const updateTier = (i, val) => { const next = [...tiers]; next[i] = val; setTiers(next); };
-  const steps = ["Patient Info", "Prescribe Tiers", "Preview & Print"];
-  const tierInfoEn = TIER_INFO.en;
-
-  // Scale the handout so it always fits on a single US Letter sheet before printing.
-  const handlePrint = () => {
-    const el = document.getElementById("print-area");
-    if (el) {
-      const DPI = 96;
-      const printableHeight = 10 * DPI; // Letter 11in − 2 × 0.5in margin
-      // Measure at the exact printable width/padding used by @media print
-      const prevWidth = el.style.width;
-      const prevPadding = el.style.padding;
-      el.style.width = "7.5in";
-      el.style.padding = "0";
-      const contentHeight = el.scrollHeight;
-      el.style.width = prevWidth;
-      el.style.padding = prevPadding;
-      const scale = Math.min(1, printableHeight / contentHeight);
-      document.documentElement.style.setProperty("--print-scale", String(scale));
-    }
-    window.print();
-  };
-
-  // Shareable QR link — data lives in the hash fragment, so it stays client-side.
-  const planUrl = useMemo(
-    () => buildPlanUrl({ patient, date, physician, tiers, lang }),
-    [patient, date, physician, tiers, lang]
-  );
-  const [copied, setCopied] = useState(false);
-  const copyPlanLink = async () => {
-    try {
-      await navigator.clipboard.writeText(planUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
-    } catch { /* clipboard unavailable — the QR still works */ }
-  };
-
-  return (
-    <>
-      <style>{`
-        button:hover { filter: brightness(0.93); }
-        select:focus, input:focus, textarea:focus { outline: 2px solid #0f4c75; outline-offset: 1px; }
-      `}</style>
-
-      <div style={styles.shell}>
-        {/* Top Bar */}
-        <div style={styles.topBar}>
-          <div style={styles.topBarInner}>
-            <div style={styles.logo}>
-              <span style={styles.logoHeart}>💊</span>
-              <div>
-                <div style={styles.logoTitle}>Diuretic Management Tool</div>
-                <div style={styles.logoSub}>Physician prescribing · Bilingual patient handout</div>
-              </div>
-            </div>
-            <div style={styles.stepIndicator}>
-              {steps.map((s, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <div style={{ ...styles.stepDot, background: i <= step ? "#0f4c75" : "#cbd5e1" }}>
-                    {i < step ? "✓" : i + 1}
-                  </div>
-                  <span style={{ ...styles.stepLabel, color: i === step ? "#bfdbfe" : "#64748b", fontWeight: i === step ? 600 : 400 }}>{s}</span>
-                  {i < steps.length - 1 && <div style={styles.stepLine} />}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div style={styles.content}>
-          {/* STEP 0 — Patient Info */}
-          {step === 0 && (
-            <div style={styles.card}>
-              <div style={styles.cardHeader}>
-                <div style={styles.cardTitle}>Patient Information</div>
-                <div style={styles.cardSub}>Enter details for the printed handout. No information is stored.</div>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 18, marginTop: 24 }}>
-                <div>
-                  <label style={styles.fieldLabel}>Patient Name <span style={{ color: "#ef4444" }}>*</span></label>
-                  <input type="text" style={styles.input} placeholder="e.g. Jane Smith" value={patient} onChange={(e) => setPatient(e.target.value)} />
-                </div>
-                <div>
-                  <label style={styles.fieldLabel}>Prescribing Provider (optional)</label>
-                  <input type="text" style={styles.input} placeholder="e.g. Dr. Rodriguez, MD" value={physician} onChange={(e) => setPhysician(e.target.value)} />
-                </div>
-                <div>
-                  <label style={styles.fieldLabel}>Date</label>
-                  <input type="text" style={styles.input} value={date} onChange={(e) => setDate(e.target.value)} />
-                </div>
-              </div>
-              <div style={styles.actions}>
-                <button style={{ ...styles.btnPrimary, opacity: patient.trim() ? 1 : 0.4 }} disabled={!patient.trim()} onClick={() => setStep(1)}>
-                  Next: Prescribe Medications →
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* STEP 1 — Tier Prescriptions */}
-          {step === 1 && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-              <div style={styles.infoBar}>
-                <strong>Prescribing for:</strong> {patient} &nbsp;·&nbsp; {date}
-                <button style={styles.editInfoBtn} onClick={() => setStep(0)}>Edit info</button>
-              </div>
-              <div style={styles.langBar}>
-                <span style={{ fontSize: 12, color: "#475569" }}>
-                  Patient-instruction language — edit each template in the language it will print:
-                </span>
-                <LangToggle lang={lang} setLang={setLang} />
-              </div>
-              {tierInfoEn.map((tier, i) => (
-                <TierEditor key={i} tierInfo={tier} value={tiers[i]} onChange={(v) => updateTier(i, v)} lang={lang} />
-              ))}
-              <div style={styles.actions}>
-                <button style={styles.btnSecondary} onClick={() => setStep(0)}>← Back</button>
-                <button style={styles.btnPrimary} onClick={() => setStep(2)}>Preview Handout →</button>
-              </div>
-            </div>
-          )}
-
-          {/* STEP 2 — Preview & Print */}
-          {step === 2 && (
-            <div>
-              <div style={styles.previewToolbar}>
-                <button style={styles.btnSecondary} onClick={() => setStep(1)}>← Edit Prescriptions</button>
-                <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-                  <LangToggle lang={lang} setLang={setLang} />
-                  <button style={styles.btnSecondary} onClick={copyPlanLink}>
-                    {copied
-                      ? (lang === "es" ? "✓ Enlace copiado" : "✓ Link copied")
-                      : (lang === "es" ? "📱 Copiar enlace" : "📱 Copy phone link")}
-                  </button>
-                  <button style={styles.btnPrint} onClick={handlePrint}>
-                    🖨 {lang === "es" ? "Imprimir Hoja del Paciente" : "Print Patient Handout"}
-                  </button>
-                </div>
-              </div>
-              <div style={styles.previewWrapper}>
-                <PrintView patient={patient} date={date} physician={physician} tiers={tiers} lang={lang} planUrl={planUrl} />
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    </>
-  );
+// Scale the handout so it always fits on a single US Letter sheet before printing.
+export function printHandout() {
+  const el = document.getElementById("print-area");
+  if (el) {
+    const DPI = 96;
+    const printableHeight = 10 * DPI; // Letter 11in − 2 × 0.5in margin
+    const prevWidth = el.style.width;
+    const prevPadding = el.style.padding;
+    el.style.width = "7.5in";
+    el.style.padding = "0";
+    const contentHeight = el.scrollHeight;
+    el.style.width = prevWidth;
+    el.style.padding = prevPadding;
+    const scale = Math.min(1, printableHeight / contentHeight);
+    document.documentElement.style.setProperty("--print-scale", String(scale));
+  }
+  window.print();
 }
 
 // ─── Patient Plan View (opened by scanning the QR code) ──────────────────────
+// Loads the plan from the patient's record by code (#/plan/HF-XXXX).
 export function PatientPlanView() {
-  const { data } = useParams();
-  const plan = data ? decodePlan(data) : null;
-  const [lang, setLang] = useState(plan?.lang || "en");
+  const { code } = useParams();
+  const [record, setRecord] = useState(undefined); // undefined = loading, null = not found
+  const [lang, setLang] = useState("en");
 
-  if (!plan) {
+  useEffect(() => {
+    let alive = true;
+    const id = (code || "").trim().toUpperCase();
+    DB.get(`hf_pt_${id}`).then((r) => { if (alive) setRecord(r || null); });
+    return () => { alive = false; };
+  }, [code]);
+
+  if (record === undefined) {
+    return (
+      <div style={styles.planViewShell}>
+        <div style={styles.planViewCard}>
+          <p style={{ padding: 24, textAlign: "center", color: "#6b7280" }}>Loading your plan…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!record || !record.diureticPlan || !planHasContent(record.diureticPlan)) {
     return (
       <div style={styles.planViewShell}>
         <div style={styles.planViewCard}>
           <p style={{ padding: 24, textAlign: "center", color: "#6b7280" }}>
-            This link is invalid or has expired. Please ask your clinic for a new plan.
+            No diuretic plan is on file for this code yet. Please ask your clinic.
           </p>
         </div>
       </div>
     );
   }
 
+  const plan = record.diureticPlan;
   return (
     <div style={styles.planViewShell}>
       <div style={styles.planViewBar}>
@@ -740,7 +602,7 @@ export function PatientPlanView() {
         <LangToggle lang={lang} setLang={setLang} />
       </div>
       <div style={styles.planViewCard}>
-        <PrintView patient={plan.patient} date={plan.date} physician={plan.physician} tiers={plan.tiers} lang={lang} />
+        <PrintView code={record.id} date={plan.date} physician={plan.physician} tiers={plan.tiers} lang={lang} />
       </div>
       <div style={styles.planViewHint}>
         {lang === "es"
@@ -752,42 +614,18 @@ export function PatientPlanView() {
 }
 
 // ─── Styles ──────────────────────────────────────────────────────────────────
-const styles = {
-  shell: { minHeight: "100vh", background: "#eef2f7", fontFamily: "'DM Sans', sans-serif" },
-  topBar: { background: "#0f4c75", color: "white", padding: "0 24px", boxShadow: "0 2px 12px rgba(0,0,0,0.2)" },
-  topBarInner: { maxWidth: 920, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 0", flexWrap: "wrap", gap: 12 },
-  logo: { display: "flex", alignItems: "center", gap: 10 },
-  logoHeart: { fontSize: 28, color: "#f87171" },
-  logoTitle: { fontSize: 16, fontWeight: 700 },
-  logoSub: { fontSize: 11, color: "#93c5fd", letterSpacing: 0.5 },
-  stepIndicator: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" },
-  stepDot: { width: 26, height: 26, borderRadius: "50%", color: "white", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" },
-  stepLabel: { fontSize: 12 },
-  stepLine: { width: 20, height: 1, background: "#334e68" },
-  content: { maxWidth: 880, margin: "30px auto", padding: "0 20px 60px" },
+export const styles = {
   card: { background: "white", borderRadius: 12, padding: "24px 28px", boxShadow: "0 1px 4px rgba(0,0,0,0.07), 0 4px 16px rgba(0,0,0,0.05)" },
-  cardHeader: { borderBottom: "1px solid #e5e7eb", paddingBottom: 14 },
-  cardTitle: { fontSize: 20, fontWeight: 700, color: "#0f4c75", fontFamily: "'Libre Baskerville', serif" },
-  cardSub: { fontSize: 13, color: "#6b7280", marginTop: 4 },
   fieldLabel: { display: "block", fontSize: 11, fontWeight: 600, color: "#374151", letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 5 },
-  input: { width: "100%", padding: "10px 14px", border: "1.5px solid #d1d5db", borderRadius: 8, fontSize: 14, fontFamily: "'DM Sans', sans-serif", color: "#111827", background: "#fafafa" },
   select: { width: "100%", padding: "9px 10px", border: "1.5px solid #d1d5db", borderRadius: 8, fontSize: 13, fontFamily: "'DM Sans', sans-serif", color: "#111827", background: "#fafafa", cursor: "pointer" },
   textarea: { width: "100%", padding: "9px 12px", border: "1.5px solid #d1d5db", borderRadius: 8, fontSize: 13, fontFamily: "'DM Sans', sans-serif", color: "#111827", background: "#fafafa", resize: "vertical", lineHeight: 1.5 },
-  actions: { marginTop: 24, display: "flex", justifyContent: "flex-end", gap: 12 },
-  btnPrimary: { background: "#0f4c75", color: "white", border: "none", borderRadius: 8, padding: "11px 24px", fontSize: 14, fontWeight: 600, cursor: "pointer" },
-  btnSecondary: { background: "white", color: "#374151", border: "1.5px solid #d1d5db", borderRadius: 8, padding: "10px 20px", fontSize: 14, cursor: "pointer" },
-  btnPrint: { background: "#1a7a4a", color: "white", border: "none", borderRadius: 8, padding: "11px 24px", fontSize: 14, fontWeight: 600, cursor: "pointer" },
   tierPill: { color: "white", fontSize: 13, fontWeight: 700, padding: "4px 14px", borderRadius: 20 },
   addMedBtn: { marginTop: 12, background: "#f1f5f9", border: "1.5px dashed #94a3b8", borderRadius: 8, padding: "7px 16px", fontSize: 12, fontWeight: 600, color: "#475569", cursor: "pointer", width: "100%" },
   removBtn: { background: "#fee2e2", border: "none", color: "#b91c1c", borderRadius: 6, width: 28, height: 28, cursor: "pointer", fontSize: 12, fontWeight: 700, flexShrink: 0, alignSelf: "flex-end", marginBottom: 1 },
   indexBadge: { width: 24, height: 24, borderRadius: "50%", background: "#e2e8f0", fontSize: 11, fontWeight: 700, color: "#475569", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, alignSelf: "flex-end", marginBottom: 2 },
   drugHint: { fontSize: 11, color: "#6b7280", fontStyle: "italic", marginBottom: 4, marginLeft: 32 },
   hintBox: { marginTop: 10, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 6, padding: "7px 12px", fontSize: 12, color: "#92400e" },
-  infoBar: { background: "#dbeafe", border: "1px solid #93c5fd", borderRadius: 8, padding: "10px 16px", fontSize: 13, color: "#1e3a5f", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" },
   langBar: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, padding: "8px 14px" },
-  editInfoBtn: { background: "none", border: "none", color: "#0f4c75", fontSize: 12, cursor: "pointer", textDecoration: "underline", marginLeft: "auto" },
-  previewWrapper: { background: "white", borderRadius: 12, boxShadow: "0 2px 20px rgba(0,0,0,0.1)", overflow: "hidden" },
-  previewToolbar: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 },
   langToggleWrap: { display: "flex", alignItems: "center", gap: 10, background: "white", border: "1.5px solid #e2e8f0", borderRadius: 10, padding: "6px 12px" },
   langToggleLabel: { fontSize: 12, fontWeight: 600, color: "#374151", whiteSpace: "nowrap" },
   langToggleBtns: { display: "flex", gap: 4 },
@@ -805,15 +643,11 @@ const printStyles = {
   header: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 },
   clinicName: { fontFamily: "'Libre Baskerville', serif", fontSize: 22, fontWeight: 700, color: "#0f4c75" },
   clinicSub: { fontSize: 12, color: "#1a7a4a", fontWeight: 600, marginTop: 2, letterSpacing: 0.4 },
-  patientName: { fontSize: 18, fontWeight: 700, color: "#111827" },
+  patientCode: { fontSize: 18, fontWeight: 700, color: "#111827", fontFamily: "monospace", letterSpacing: 1 },
   meta: { fontSize: 12, color: "#6b7280", marginTop: 2 },
   divider: { height: 2, background: "linear-gradient(to right, #0f4c75, #1a7a4a, #e5e7eb)", margin: "14px 0" },
   section: { marginBottom: 18 },
   sectionTitle: { fontSize: 13, fontWeight: 700, color: "#0f4c75", letterSpacing: 0.5, marginBottom: 10, textTransform: "uppercase" },
-  instructionGrid: { display: "flex", flexDirection: "column", gap: 7 },
-  instructionCard: { display: "flex", gap: 10, alignItems: "flex-start", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 7, padding: "8px 12px" },
-  instructionIcon: { fontSize: 20, lineHeight: 1, flexShrink: 0 },
-  instructionText: { fontSize: 12, color: "#374151", marginTop: 2, lineHeight: 1.5 },
   tiersContainer: { display: "flex", flexDirection: "column", gap: 10 },
   tierCard: { border: "2px solid", borderRadius: 8, overflow: "hidden" },
   tierBadge: { padding: "6px 14px", color: "white", fontWeight: 700, fontSize: 13, letterSpacing: 0.3 },

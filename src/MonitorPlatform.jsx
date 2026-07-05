@@ -5,6 +5,12 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, R
 // Storage goes through the shared DB layer (Supabase when configured, otherwise
 // per-device localStorage). See src/db.js.
 import { DB } from "./db";
+// Diuretic regimen lives on the patient record; the editor/handout come from the
+// shared kit so the physician sets the plan here when creating the patient.
+import {
+  DiureticPlanEditor, PrintView, LangToggle,
+  emptyPlan, planHasContent, buildPlanUrl, printHandout,
+} from "./diuretic/planKit.jsx";
 
 const genId = () => "HF-" + Math.random().toString(36).substr(2, 4).toUpperCase();
 const today = () => new Date().toISOString().split("T")[0];
@@ -219,10 +225,10 @@ Respond ONLY with valid JSON:
 // ─── Patient Portal ───────────────────────────────────────────────────────────
 function PatientPortal({ lang }) {
   const t = L[lang];
-  const [mode, setMode] = useState("choice"); // choice | new | returning | tracking
-  const [patientData, setPatientData] = useState(null); // {id, name, baseline, entries, lastAnalysis}
-  const [nameInput, setNameInput] = useState("");
-  const [baseInput, setBaseInput] = useState("");
+  // Patients no longer self-register — the clinic creates the record and hands
+  // out the code. The portal only looks a patient up by their code.
+  const [mode, setMode] = useState("returning"); // returning | tracking
+  const [patientData, setPatientData] = useState(null); // {id, baseline, entries, lastAnalysis, diureticPlan}
   const [codeInput, setCodeInput] = useState("");
   const [weightInput, setWeightInput] = useState("");
   const [dateInput, setDateInput] = useState(today());
@@ -243,14 +249,6 @@ function PatientPortal({ lang }) {
       await DB.set("hf_ids", list);
     }
     setSaving(false);
-  };
-
-  const createPatient = async () => {
-    const id = genId();
-    const data = { id, baseline: baseInput, entries: [], lastAnalysis: null, createdAt: today(), lastUpdated: today() };
-    await savePatient(data);
-    setPatientData(data);
-    setMode("tracking");
   };
 
   const findPatient = async () => {
@@ -295,49 +293,10 @@ function PatientPortal({ lang }) {
     setLoadingAI(false);
   };
 
-  // ── Choice Screen ──
-  if (mode === "choice") return (
-    <div style={ps.centerWrap}>
-      <div style={ps.choiceCard}>
-        <div style={ps.welcomeIcon}>⚖️</div>
-        <div style={ps.welcomeTitle}>{lang === "es" ? "Bienvenido" : "Welcome"}</div>
-        <div style={ps.welcomeSub}>{lang === "es" ? "¿Es usted un paciente nuevo o ya tiene un código?" : "Are you a new patient or do you have a code?"}</div>
-        <button style={ps.choiceBtn} onClick={() => setMode("new")}>✦ {t.newPatient}</button>
-        <button style={{ ...ps.choiceBtn, background:"white", color:"#1e3a8a", border:"2px solid #1e3a8a" }}
-          onClick={() => setMode("returning")}>↩ {t.returning}</button>
-      </div>
-    </div>
-  );
-
-  // ── New Patient Form ──
-  if (mode === "new") return (
-    <div style={ps.centerWrap}>
-      <div style={ps.formCard}>
-        <button style={ps.backBtn} onClick={() => setMode("choice")}>← {lang==="es"?"Atrás":"Back"}</button>
-        <div style={ps.formTitle}>{t.newPatient}</div>
-
-        {/* Privacy notice */}
-        <div style={ps.privacyBox}>
-          <div style={ps.privacyTitle}>{t.privacyTitle}</div>
-          <div style={ps.privacyBody}>{t.privacyBody}</div>
-          <div style={ps.privacyWarn}>⚠ {t.privacyWarn}</div>
-        </div>
-
-        <div style={{ marginTop:16 }}>
-          <label style={ps.fieldLabel}>{t.baseLabel}</label>
-          <input type="number" style={ps.input} placeholder={t.basePH} value={baseInput} onChange={e => setBaseInput(e.target.value)} />
-          <div style={ps.helpText}>{t.baseHelp}</div>
-        </div>
-        <button style={{ ...ps.choiceBtn, marginTop:20 }} onClick={createPatient}>{t.startBtn}</button>
-      </div>
-    </div>
-  );
-
-  // ── Returning Patient ──
+  // ── Returning Patient (code entry — the only patient entry point) ──
   if (mode === "returning") return (
     <div style={ps.centerWrap}>
       <div style={ps.formCard}>
-        <button style={ps.backBtn} onClick={() => setMode("choice")}>← {lang==="es"?"Atrás":"Back"}</button>
         <div style={ps.formTitle}>{t.returning}</div>
         <div style={ps.privacyBox}>
           <div style={ps.privacyTitle}>{t.privacyTitle}</div>
@@ -513,6 +472,24 @@ function PatientPortal({ lang }) {
           <div style={ps.emergencyStrip}>{t.emergency}</div>
         </div>
       </div>
+
+      {/* Patient's own diuretic plan (set by the clinic on their record) */}
+      {patientData.diureticPlan && planHasContent(patientData.diureticPlan) && (
+        <div style={{ maxWidth:1100, margin:"20px auto 0", padding:"0 20px" }}>
+          <div style={ps.card}>
+            <div style={ps.cardTitle}>{lang === "es" ? "💊 Su Plan de Diuréticos" : "💊 Your Diuretic Plan"}</div>
+            <div style={{ border:"1px solid #e2e8f0", borderRadius:10, overflow:"hidden", marginTop:10 }}>
+              <PrintView
+                code={patientData.id}
+                date={patientData.diureticPlan.date}
+                physician={patientData.diureticPlan.physician}
+                tiers={patientData.diureticPlan.tiers}
+                lang={lang}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -581,6 +558,88 @@ function PINChangeSection({ config, setConfig }) {
   );
 }
 
+// ─── Patient Editor Modal (create a patient, or edit their diuretic plan) ────
+// This is where "set up the regimen when setting up the database for the patient"
+// happens: assign the code + baseline + full 3-tier plan in one place.
+function PatientEditorModal({ existing, onClose, onSaved }) {
+  const isNew = !existing;
+  const [code] = useState(existing?.id || genId());
+  const [baseline, setBaseline] = useState(existing?.baseline ?? "");
+  const [plan, setPlan] = useState(existing?.diureticPlan || emptyPlan());
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    setSaving(true);
+    const base = existing || { id: code, entries: [], lastAnalysis: null, lastTier: null, createdAt: today() };
+    const data = { ...base, baseline, diureticPlan: plan, lastUpdated: today() };
+    await DB.set(`hf_pt_${data.id}`, data);
+    const ids = (await DB.get("hf_ids")) || [];
+    if (!ids.includes(data.id)) { ids.push(data.id); await DB.set("hf_ids", ids); }
+    setSaving(false);
+    onSaved();
+  };
+
+  return (
+    <div style={md.modalOverlay} onClick={onClose}>
+      <div style={{ ...md.modalBox, maxWidth: 800 }} onClick={e => e.stopPropagation()}>
+        <div style={md.modalTitle}>{isNew ? "➕ New Patient" : `✎ Edit Plan — ${code}`}</div>
+
+        <div style={{ display:"flex", gap:16, flexWrap:"wrap", alignItems:"flex-start", marginBottom:6 }}>
+          <div>
+            <div style={md.settingLabel}>Patient Code</div>
+            <div style={ps.codeBox}>{code}</div>
+            {isNew && <div style={{ fontSize:11, color:"#94a3b8", marginTop:6, maxWidth:220 }}>
+              Write this code on the patient's card — they use it to log weights and view this plan.
+            </div>}
+          </div>
+          <div style={{ flex:"1 1 160px" }}>
+            <div style={md.settingLabel}>Baseline Weight (lbs)</div>
+            <input type="number" style={ps.input} placeholder="e.g. 165"
+              value={baseline} onChange={e => setBaseline(e.target.value)} />
+            <div style={{ fontSize:11, color:"#94a3b8", marginTop:5 }}>The patient's "dry weight" when they feel well.</div>
+          </div>
+        </div>
+
+        <div style={md.settingDivider}><div style={md.settingDividerLabel}>💊 Diuretic Action Plan</div></div>
+        <DiureticPlanEditor value={plan} onChange={setPlan} />
+
+        <div style={{ display:"flex", gap:10, marginTop:20, justifyContent:"flex-end" }}>
+          <button style={md.cancelBtn} onClick={onClose}>Cancel</button>
+          <button style={{ ...md.saveCfgBtn, opacity: saving ? 0.6 : 1 }} disabled={saving} onClick={save}>
+            {saving ? "Saving…" : isNew ? "Create Patient" : "Save Plan"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Print Handout Modal (preview + print the bilingual sheet with QR) ───────
+function PrintHandoutModal({ patient, onClose }) {
+  const plan = patient.diureticPlan || emptyPlan();
+  const [lang, setLang] = useState("en");
+  const planUrl = buildPlanUrl(patient.id);
+
+  return (
+    <div style={md.modalOverlay} onClick={onClose}>
+      <div style={{ ...md.modalBox, maxWidth: 840 }} onClick={e => e.stopPropagation()}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:10, marginBottom:14 }}>
+          <div style={{ ...md.modalTitle, marginBottom:0 }}>🖨 Handout — {patient.id}</div>
+          <div style={{ display:"flex", gap:10, alignItems:"center", flexWrap:"wrap" }}>
+            <LangToggle lang={lang} setLang={setLang} />
+            <button style={md.saveCfgBtn} onClick={printHandout}>🖨 Print</button>
+            <button style={md.cancelBtn} onClick={onClose}>Close</button>
+          </div>
+        </div>
+        <div style={{ border:"1px solid #e2e8f0", borderRadius:10, overflow:"hidden" }}>
+          <PrintView code={patient.id} date={plan.date} physician={plan.physician}
+            tiers={plan.tiers} lang={lang} planUrl={planUrl} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Physician Dashboard ──────────────────────────────────────────────────────
 function PhysicianDashboard({ onBack }) {
   const [patients, setPatients] = useState([]);
@@ -590,6 +649,8 @@ function PhysicianDashboard({ onBack }) {
   const [showSettings, setShowSettings] = useState(false);
   const [config, setConfig] = useState({ physicianEmail:"", emailjsService:"", emailjsTemplate:"", emailjsKey:"" });
   const [emailStatus, setEmailStatus] = useState({});
+  const [editorFor, setEditorFor] = useState(null); // "new" | patient object | null
+  const [printFor, setPrintFor] = useState(null);    // patient object | null
 
   useEffect(() => { loadAll(); }, []);
 
@@ -669,6 +730,8 @@ function PhysicianDashboard({ onBack }) {
           </div>
         </div>
         <div style={{ display:"flex", gap:8 }}>
+          <button style={{ ...md.iconBtn, background:"#1e3a8a", color:"white", border:"1.5px solid #1e3a8a" }}
+            onClick={() => setEditorFor("new")} title="Register a new patient">➕ New Patient</button>
           <button style={md.iconBtn} onClick={loadAll} title="Refresh">🔄 Refresh</button>
           <button style={md.iconBtn} onClick={() => setShowSettings(true)} title="Settings">⚙️ Settings</button>
         </div>
@@ -720,7 +783,7 @@ function PhysicianDashboard({ onBack }) {
       {loading ? (
         <div style={md.emptyState}>Loading patient data…</div>
       ) : filtered.length === 0 ? (
-        <div style={md.emptyState}>No patients found{filter !== "all" ? " for this filter" : ". Patients will appear here after they register."}.</div>
+        <div style={md.emptyState}>No patients found{filter !== "all" ? " for this filter" : ". Click “➕ New Patient” to register one."}.</div>
       ) : (
         <div style={md.patientGrid}>
           {filtered.map(pt => (
@@ -732,6 +795,7 @@ function PhysicianDashboard({ onBack }) {
                   <div style={{ marginTop:6 }}>
                     {pt.lastTier ? <TierBadge tier={pt.lastTier} size="sm" /> : <span style={md.noTierBadge}>Not analyzed yet</span>}
                     {pt.baseline && <span style={md.baseChip}>Base: {pt.baseline} lbs</span>}
+                    {planHasContent(pt.diureticPlan) && <span style={md.planChip}>💊 Plan set</span>}
                     {pt.entries?.length > 0 && pt.lastAnalysis?.maxGain > 0 && (
                       <span style={md.gainChip}>+{pt.lastAnalysis.maxGain} lbs gain</span>
                     )}
@@ -789,6 +853,10 @@ function PhysicianDashboard({ onBack }) {
                             onClick={() => sendEmail(pt)}>
                             {emailStatus[pt.id] === "sending" ? "⏳ Sending…" : emailStatus[pt.id] === "sent" ? "✓ Alert Sent" : "📧 Send Alert Email"}
                           </button>
+                        )}
+                        <button style={md.iconBtn} onClick={() => setEditorFor(pt)}>✎ Edit Plan</button>
+                        {planHasContent(pt.diureticPlan) && (
+                          <button style={md.iconBtn} onClick={() => setPrintFor(pt)}>🖨 Handout</button>
                         )}
                         <button style={md.deleteBtnLg} onClick={() => deletePatient(pt.id)}>🗑 Delete Patient</button>
                       </div>
@@ -851,6 +919,18 @@ function PhysicianDashboard({ onBack }) {
           </div>
         </div>
       )}
+
+      {/* Create-patient / edit-plan modal */}
+      {editorFor && (
+        <PatientEditorModal
+          existing={editorFor === "new" ? null : editorFor}
+          onClose={() => setEditorFor(null)}
+          onSaved={() => { setEditorFor(null); loadAll(); }}
+        />
+      )}
+
+      {/* Print handout modal */}
+      {printFor && <PrintHandoutModal patient={printFor} onClose={() => setPrintFor(null)} />}
     </div>
   );
 }
@@ -1019,6 +1099,7 @@ const md = {
   ptMeta: { fontSize:11.5, color:"#94a3b8", marginTop:2 },
   noTierBadge: { fontSize:11, color:"#94a3b8", background:"#f1f5f9", borderRadius:20, padding:"2px 9px", display:"inline-block" },
   baseChip: { fontSize:11, color:"#1a7a4a", background:"#eaf7f0", borderRadius:20, padding:"2px 9px", display:"inline-block", marginLeft:6 },
+  planChip: { fontSize:11, color:"#0f4c75", background:"#e0f2fe", borderRadius:20, padding:"2px 9px", display:"inline-block", marginLeft:6 },
   gainChip: { fontSize:11, color:"#b91c1c", background:"#fff1f2", borderRadius:20, padding:"2px 9px", display:"inline-block", marginLeft:6 },
   entriesChip: { fontSize:11, color:"#1d4ed8", background:"#eff6ff", borderRadius:12, padding:"2px 8px" },
   ptDetail: { borderTop:"1.5px solid #f1f5f9", padding:"16px 18px", background:"#fafbff" },

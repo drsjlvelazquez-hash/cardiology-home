@@ -39,6 +39,7 @@ const rowToPatient = (r) => r && {
   entries: r.entries || [],
   lastAnalysis: r.last_analysis || null,
   lastTier: r.last_tier ?? null,
+  diureticPlan: r.diuretic_plan || null,
   createdAt: r.created_at,
   lastUpdated: r.last_updated,
 };
@@ -49,6 +50,7 @@ const patientToRow = (d) => ({
   entries: d.entries || [],
   last_analysis: d.lastAnalysis || null,
   last_tier: d.lastTier ?? null,
+  diuretic_plan: d.diureticPlan || null,
   created_at: d.createdAt || null,
   last_updated: d.lastUpdated || null,
 });
