@@ -27,6 +27,12 @@ textarea:focus {
   }
 }
 
+/* Guarantee a single US Letter sheet for the patient handout */
+@page {
+  size: Letter;
+  margin: 0.5in;
+}
+
 /* Hide app chrome when printing the patient handout */
 @media print {
   body * {
@@ -40,7 +46,11 @@ textarea:focus {
     position: fixed;
     top: 0;
     left: 0;
-    width: 100%;
-    padding: 20px 36px;
+    width: 7.5in; /* Letter printable width: 8.5in − 2 × 0.5in margin */
+    padding: 0;
+    /* --print-scale is set just before printing to fit everything on one page */
+    zoom: var(--print-scale, 1);
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 }

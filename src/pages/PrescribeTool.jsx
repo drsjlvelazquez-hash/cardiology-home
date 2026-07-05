@@ -1,4 +1,7 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
+import { useParams } from "react-router-dom";
+import { QRCodeSVG } from "qrcode.react";
+import LZString from "lz-string";
 
 const MEDICATIONS = {
   bumetanide: {
@@ -210,6 +213,48 @@ const OTHER = "__other__";
 // Resolve the printable medication name (handles the custom "Other" entry)
 const drugDisplayName = (d) => (d.drug === OTHER ? d.drugName : MEDICATIONS[d.drug]?.label) || "";
 
+// ─── Plan sharing (QR code) ──────────────────────────────────────────────────
+// The finished plan is compressed into a URL-safe string that lives in the page's
+// hash fragment (#/plan/<data>). Because it is in the fragment, it never reaches
+// the server — the patient's name and plan stay entirely client-side.
+const encodePlan = ({ patient, date, physician, tiers, lang }) => {
+  const payload = {
+    p: patient, dt: date, ph: physician, l: lang,
+    t: tiers.map((tier) => ({
+      d: tier.drugs
+        .filter((dr) => drugDisplayName(dr) && dr.dose && dr.frequency)
+        .map((dr) => ({ k: dr.drug, o: dr.drugName || "", s: dr.dose, f: dr.frequency })),
+      n: { en: tier.notes?.en || "", es: tier.notes?.es || "" },
+    })),
+  };
+  return LZString.compressToEncodedURIComponent(JSON.stringify(payload));
+};
+
+const decodePlan = (encoded) => {
+  try {
+    const payload = JSON.parse(LZString.decompressFromEncodedURIComponent(encoded));
+    return {
+      patient: payload.p || "",
+      date: payload.dt || "",
+      physician: payload.ph || "",
+      lang: payload.l === "es" ? "es" : "en",
+      tiers: (payload.t || []).map((tier) => ({
+        drugs: (tier.d || []).map((dr) => ({
+          drug: dr.k, drugName: dr.o || "", dose: dr.s || "", frequency: dr.f || "",
+        })),
+        notes: { en: tier.n?.en || "", es: tier.n?.es || "" },
+      })),
+    };
+  } catch {
+    return null;
+  }
+};
+
+// Full shareable link. Data goes in the hash PATH (not a query) so that "+" in the
+// compressed payload is not misread as a space by query-string parsers.
+const buildPlanUrl = (plan) =>
+  `${window.location.origin}${window.location.pathname}#/plan/${encodePlan(plan)}`;
+
 const emptyDrug = () => ({ drug: "", dose: "", frequency: "", drugName: "", doseOther: false, freqOther: false });
 // notes is stored per handout language so each can be edited and printed verbatim
 const emptyTier = () => ({ drugs: [emptyDrug()], notes: { en: "", es: "" }, notesPreset: "" });
@@ -366,7 +411,7 @@ function TierEditor({ tierInfo, value, onChange, lang }) {
 }
 
 // ─── PrintView ───────────────────────────────────────────────────────────────
-function PrintView({ patient, date, physician, tiers, lang }) {
+function PrintView({ patient, date, physician, tiers, lang, planUrl }) {
   const t = T[lang];
   const tierDefs = TIER_INFO[lang];
 
@@ -464,6 +509,24 @@ function PrintView({ patient, date, physician, tiers, lang }) {
         </div>
       </div>
 
+      {planUrl && (
+        <div style={printStyles.qrRow}>
+          <div style={printStyles.qrBox}>
+            <QRCodeSVG value={planUrl} size={92} level="L" marginSize={0} />
+          </div>
+          <div style={printStyles.qrCaption}>
+            <strong>
+              {lang === "es" ? "📱 Lleve este plan en su teléfono" : "📱 Take this plan on your phone"}
+            </strong>
+            <div style={{ marginTop: 2 }}>
+              {lang === "es"
+                ? "Escanee este código con la cámara de su teléfono para abrir y guardar su plan."
+                : "Scan this code with your phone camera to open and save your plan."}
+            </div>
+          </div>
+        </div>
+      )}
+
       <div style={printStyles.footer}>{t.footer}</div>
     </div>
   );
@@ -502,6 +565,40 @@ export default function PrescribeTool() {
   const updateTier = (i, val) => { const next = [...tiers]; next[i] = val; setTiers(next); };
   const steps = ["Patient Info", "Prescribe Tiers", "Preview & Print"];
   const tierInfoEn = TIER_INFO.en;
+
+  // Scale the handout so it always fits on a single US Letter sheet before printing.
+  const handlePrint = () => {
+    const el = document.getElementById("print-area");
+    if (el) {
+      const DPI = 96;
+      const printableHeight = 10 * DPI; // Letter 11in − 2 × 0.5in margin
+      // Measure at the exact printable width/padding used by @media print
+      const prevWidth = el.style.width;
+      const prevPadding = el.style.padding;
+      el.style.width = "7.5in";
+      el.style.padding = "0";
+      const contentHeight = el.scrollHeight;
+      el.style.width = prevWidth;
+      el.style.padding = prevPadding;
+      const scale = Math.min(1, printableHeight / contentHeight);
+      document.documentElement.style.setProperty("--print-scale", String(scale));
+    }
+    window.print();
+  };
+
+  // Shareable QR link — data lives in the hash fragment, so it stays client-side.
+  const planUrl = useMemo(
+    () => buildPlanUrl({ patient, date, physician, tiers, lang }),
+    [patient, date, physician, tiers, lang]
+  );
+  const [copied, setCopied] = useState(false);
+  const copyPlanLink = async () => {
+    try {
+      await navigator.clipboard.writeText(planUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch { /* clipboard unavailable — the QR still works */ }
+  };
 
   return (
     <>
@@ -595,19 +692,62 @@ export default function PrescribeTool() {
                 <button style={styles.btnSecondary} onClick={() => setStep(1)}>← Edit Prescriptions</button>
                 <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
                   <LangToggle lang={lang} setLang={setLang} />
-                  <button style={styles.btnPrint} onClick={() => window.print()}>
+                  <button style={styles.btnSecondary} onClick={copyPlanLink}>
+                    {copied
+                      ? (lang === "es" ? "✓ Enlace copiado" : "✓ Link copied")
+                      : (lang === "es" ? "📱 Copiar enlace" : "📱 Copy phone link")}
+                  </button>
+                  <button style={styles.btnPrint} onClick={handlePrint}>
                     🖨 {lang === "es" ? "Imprimir Hoja del Paciente" : "Print Patient Handout"}
                   </button>
                 </div>
               </div>
               <div style={styles.previewWrapper}>
-                <PrintView patient={patient} date={date} physician={physician} tiers={tiers} lang={lang} />
+                <PrintView patient={patient} date={date} physician={physician} tiers={tiers} lang={lang} planUrl={planUrl} />
               </div>
             </div>
           )}
         </div>
       </div>
     </>
+  );
+}
+
+// ─── Patient Plan View (opened by scanning the QR code) ──────────────────────
+export function PatientPlanView() {
+  const { data } = useParams();
+  const plan = data ? decodePlan(data) : null;
+  const [lang, setLang] = useState(plan?.lang || "en");
+
+  if (!plan) {
+    return (
+      <div style={styles.planViewShell}>
+        <div style={styles.planViewCard}>
+          <p style={{ padding: 24, textAlign: "center", color: "#6b7280" }}>
+            This link is invalid or has expired. Please ask your clinic for a new plan.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={styles.planViewShell}>
+      <div style={styles.planViewBar}>
+        <span style={{ fontSize: 13, fontWeight: 600, color: "#0f4c75" }}>
+          {lang === "es" ? "Su Plan de Diuréticos" : "Your Diuretic Plan"}
+        </span>
+        <LangToggle lang={lang} setLang={setLang} />
+      </div>
+      <div style={styles.planViewCard}>
+        <PrintView patient={plan.patient} date={plan.date} physician={plan.physician} tiers={plan.tiers} lang={lang} />
+      </div>
+      <div style={styles.planViewHint}>
+        {lang === "es"
+          ? "💾 Guarde esta página o tome una captura de pantalla para tenerla siempre a mano."
+          : "💾 Save this page or take a screenshot so you always have it handy."}
+      </div>
+    </div>
   );
 }
 
@@ -654,6 +794,10 @@ const styles = {
   langBtn: { padding: "5px 14px", borderRadius: 7, border: "1.5px solid #e2e8f0", background: "#f8fafc", fontSize: 13, cursor: "pointer", fontWeight: 500, color: "#6b7280", transition: "all 0.15s" },
   langBtnActive: { background: "#0f4c75", color: "white", border: "1.5px solid #0f4c75", fontWeight: 700 },
   langBtnActiveEs: { background: "#b91c1c", color: "white", border: "1.5px solid #b91c1c", fontWeight: 700 },
+  planViewShell: { minHeight: "100vh", background: "#eef2f7", fontFamily: "'DM Sans', sans-serif", padding: "12px 10px 40px" },
+  planViewBar: { maxWidth: 760, margin: "0 auto 12px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" },
+  planViewCard: { maxWidth: 760, margin: "0 auto", background: "white", borderRadius: 12, boxShadow: "0 2px 20px rgba(0,0,0,0.1)", overflow: "hidden" },
+  planViewHint: { maxWidth: 760, margin: "12px auto 0", textAlign: "center", fontSize: 13, color: "#475569" },
 };
 
 const printStyles = {
@@ -681,5 +825,8 @@ const printStyles = {
   instructionsNote: { background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 5, padding: "6px 10px", fontSize: 12, color: "#14532d", lineHeight: 1.5 },
   escalateNote: { fontSize: 11.5, color: "#92400e", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 4, padding: "5px 10px" },
   emergencyBox: { background: "#fff1f2", border: "2px solid #fca5a5", borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontSize: 12.5 },
+  qrRow: { display: "flex", alignItems: "center", gap: 14, background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, padding: "10px 14px", marginBottom: 6 },
+  qrBox: { background: "white", padding: 5, borderRadius: 6, border: "1px solid #e2e8f0", lineHeight: 0, flexShrink: 0 },
+  qrCaption: { fontSize: 12, color: "#374151", lineHeight: 1.45 },
   footer: { fontSize: 11, color: "#9ca3af", textAlign: "center", marginTop: 14, fontStyle: "italic", borderTop: "1px solid #e5e7eb", paddingTop: 10 },
 };
