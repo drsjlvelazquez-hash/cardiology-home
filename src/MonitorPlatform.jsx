@@ -567,16 +567,26 @@ function PatientEditorModal({ existing, onClose, onSaved }) {
   const [baseline, setBaseline] = useState(existing?.baseline ?? "");
   const [plan, setPlan] = useState(existing?.diureticPlan || emptyPlan());
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
   const save = async () => {
     setSaving(true);
+    setError("");
     const base = existing || { id: code, entries: [], lastAnalysis: null, lastTier: null, createdAt: today() };
     const data = { ...base, baseline, diureticPlan: plan, lastUpdated: today() };
-    await DB.set(`hf_pt_${data.id}`, data);
+    // DB.set returns false when the write can't reach the database (e.g. offline
+    // or DNS/network failure). Surface that instead of silently closing — otherwise
+    // the patient just "disappears" with no explanation.
+    const ok = await DB.set(`hf_pt_${data.id}`, data);
+    if (!ok) {
+      setSaving(false);
+      setError("Couldn't save — the app couldn't reach the database. Check your internet connection and try again.");
+      return;
+    }
     const ids = (await DB.get("hf_ids")) || [];
     if (!ids.includes(data.id)) { ids.push(data.id); await DB.set("hf_ids", ids); }
     setSaving(false);
-    onSaved();
+    onSaved(data);
   };
 
   return (
@@ -603,7 +613,8 @@ function PatientEditorModal({ existing, onClose, onSaved }) {
         <div style={md.settingDivider}><div style={md.settingDividerLabel}>💊 Diuretic Action Plan</div></div>
         <DiureticPlanEditor value={plan} onChange={setPlan} />
 
-        <div style={{ display:"flex", gap:10, marginTop:20, justifyContent:"flex-end" }}>
+        {error && <div style={{ ...ps.errorMsg, marginTop:16 }}>⚠ {error}</div>}
+        <div style={{ display:"flex", gap:10, marginTop:16, justifyContent:"flex-end" }}>
           <button style={md.cancelBtn} onClick={onClose}>Cancel</button>
           <button style={{ ...md.saveCfgBtn, opacity: saving ? 0.6 : 1 }} disabled={saving} onClick={save}>
             {saving ? "Saving…" : isNew ? "Create Patient" : "Save Plan"}
@@ -925,7 +936,13 @@ function PhysicianDashboard({ onBack }) {
         <PatientEditorModal
           existing={editorFor === "new" ? null : editorFor}
           onClose={() => setEditorFor(null)}
-          onSaved={() => { setEditorFor(null); loadAll(); }}
+          onSaved={(saved) => {
+            setEditorFor(null);
+            loadAll();
+            // After registering a patient, jump straight to the printable handout
+            // (the physician hands this sheet, with the patient's code, to the patient).
+            if (planHasContent(saved.diureticPlan)) setPrintFor(saved);
+          }}
         />
       )}
 
